@@ -1,6 +1,6 @@
 input: data/thinkarm/traces.jsonl
 labeler: openai
-model: GLM-5.3-Flash  # Set to the model you want to evaluate.
+model: Qwen3.8-27B  # Set to the model you want to evaluate.
 base_url: https://llm.hpc.pcss.pl/v1 # Change for an OpenAI-compatible server.
 batch_size: 20
 concurrency: 16
