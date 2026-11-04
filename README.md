@@ -89,15 +89,16 @@ changes, use a new run name. Results are flushed after each completed trace.
 
 ## Evaluate against human labels
 
-Convert ThinkARM's human-labeled prefixes for a source model (nine problems):
+For evaluation, export only the human-annotated sentence prefixes:
 
 ```bash
-uv run python scripts/convert_thinkarm.py deepseekR1 --out data/thinkarm
+uv run python scripts/convert_thinkarm.py deepseekR1 --human-only --out data/thinkarm
 ```
 
 Here `deepseekR1` selects the reasoning traces; `model` in your YAML selects the
 model that labels those traces. The converter also accepts several source model
-names in one command.
+names in one command. For `deepseekR1`, `--human-only` currently exports nine
+annotated prefixes, so you only pay to label sentences that can be scored.
 
 Change `input` in `configs/experiment.yaml` to `data/thinkarm/traces.jsonl`, then
 label and score with a new run name:
@@ -111,6 +112,35 @@ Evaluation prints accuracy, Cohen's kappa, scored sentence and trace counts,
 skipped ids, and a confusion matrix. Missing traces and traces with mismatched
 sentence text are reported and excluded from scoring. You can supply your own
 human JSONL with the same ids and sentence `index`, `text`, and `label` fields.
+
+## Label full ThinkARM traces
+
+Without `--human-only`, the converter exports every full reasoning trace,
+including those without human annotations:
+
+```bash
+uv run python scripts/convert_thinkarm.py deepseekR1 --out data/thinkarm-all
+```
+
+For a smaller experiment, use `--limit` to take the first N traces per source
+model:
+
+```bash
+uv run python scripts/convert_thinkarm.py deepseekR1 --limit 20 --out data/thinkarm-20
+```
+
+Set `input` in your YAML to `data/thinkarm-20/traces.jsonl`, then label them:
+
+```bash
+uv run python -m labeling label configs/experiment.yaml --run thinkarm-20
+```
+
+Both modes write `traces.jsonl` and `human.jsonl`. The latter contains only the
+available human labels for the exported traces and is empty if none exist.
+You can evaluate a full-trace run against that file; only the annotated prefixes
+are scored. `--limit` also works with `--human-only`, taking the first N annotated
+problems per model. Multiple source models can be given before the options;
+problem ids stay the same across all modes.
 
 ## Development
 
