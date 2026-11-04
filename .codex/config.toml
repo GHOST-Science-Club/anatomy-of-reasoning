@@ -1,0 +1,33 @@
+# Codex equivalent of .claude/settings.json.
+# Project configuration is loaded only after this repository is trusted.
+# Remove legacy sandbox_mode / sandbox_workspace_write settings from other
+# loaded configs: they override default_permissions and bypass this profile.
+default_permissions = "project"
+
+# Codex has no direct equivalents for Claude's attribution settings.
+developer_instructions = """
+Do not add AI attribution, Co-authored-by trailers, generated-by footers, or
+session URLs to commit messages or pull request titles and descriptions.
+Do not read, modify, or source .env or .env.* files anywhere in this repository,
+including through shell commands. Do not bypass these restrictions by requesting
+unsandboxed access.
+"""
+
+# Requires a Codex-compatible plugin and its marketplace to be registered;
+# this setting alone does not install the Claude plugin or its marketplace.
+[plugins."superpowers@claude-plugins-official"]
+enabled = true
+
+[permissions.project]
+extends = ":workspace"
+
+[permissions.project.filesystem]
+# Linux/WSL/Windows snapshot recursive deny matches at process startup.
+# Matches below this depth need a larger bound; new files require a new process.
+glob_scan_max_depth = 32
+
+[permissions.project.filesystem.":workspace_roots"]
+".env" = "deny"
+".env.*" = "deny"
+"**/.env" = "deny"
+"**/.env.*" = "deny"
