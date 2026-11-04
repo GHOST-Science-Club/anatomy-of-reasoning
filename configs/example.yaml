@@ -1,0 +1,11 @@
+input: data/traces.jsonl
+labeler: openai
+model: gpt-5
+base_url: null
+batch_size: 20
+concurrency: 16
+traces_in_flight: 2
+response_format: json_schema
+temperature: null
+max_tokens: null
+guidebook: ThinkARM/guidebook/sentence_guide.md
