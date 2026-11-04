@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import time
 
 from dotenv import load_dotenv
 from tqdm import tqdm
@@ -178,19 +179,22 @@ async def run(config_path, name):
         return 0
     labeler = REGISTRY[config['labeler']](config)
     iterator = iter(pending)
+    sentence_count = 0
+    start = time.perf_counter()
     with (
         output.open('a', encoding='utf-8') as stream,
         tqdm(total=len(pending), unit='trace') as progress,
     ):
 
         async def worker():
-            nonlocal succeeded
+            nonlocal succeeded, sentence_count
             for row in iterator:
                 try:
                     result = await _label_row(labeler, row)
                     stream.write(json.dumps(result, ensure_ascii=False) + '\n')
                     stream.flush()
                     succeeded += 1
+                    sentence_count += len(result['sentences'])
                 except Exception as exc:
                     failed.append(row['id'])
                     tqdm.write(f'Failed {row["id"]}: {redact_error(exc)}')
@@ -199,5 +203,11 @@ async def run(config_path, name):
 
         workers = min(config.get('traces_in_flight', DEFAULTS['traces_in_flight']), len(pending))
         await asyncio.gather(*(worker() for _ in range(workers)))
+    elapsed = time.perf_counter() - start
     print(f'Succeeded: {succeeded}; failed ids: {", ".join(failed) or "none"}')
+    if succeeded:
+        print(
+            f'Elapsed: {elapsed:.1f}s; {elapsed / succeeded:.2f}s per trace; '
+            f'{elapsed / max(sentence_count, 1):.3f}s per sentence ({sentence_count} sentences)'
+        )
     return int(bool(failed))

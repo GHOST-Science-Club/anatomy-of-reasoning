@@ -42,7 +42,10 @@ def _pair_labels(trace_id, human_sentences, predicted_sentences):
 
 
 def _print_report(result):
-    print(f'Accuracy: {result["accuracy"]}\nKappa: {result["kappa"]}')
+    accuracy, kappa = (
+        None if v is None else round(v, 3) for v in (result['accuracy'], result['kappa'])
+    )
+    print(f'Accuracy: {accuracy}\nKappa: {kappa}')
     print(f'Scored sentences: {result["sentences"]}; traces: {result["traces"]}')
     print(f'Skipped ids: {", ".join(result["skipped"]) or "none"}')
     print('Confusion matrix (human rows, predicted columns):')
