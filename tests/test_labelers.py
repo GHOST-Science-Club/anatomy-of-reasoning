@@ -217,3 +217,28 @@ def test_out_of_order_batches(setup):
     result = asyncio.run(m.OpenAICompatLabeler(setup.config).label('P', ['first', 'second']))
     assert finished == [False, True]
     assert [p.label for p in result] == ['Read', 'Answer']
+
+
+@pytest.mark.parametrize('kwargs', [
+    {'enable_thinking': False}, {'thinking': False}, {'enable_thinking': True},
+])
+def test_chat_template_kwargs_are_forwarded(setup, kwargs):
+    setup.config['chat_template_kwargs'] = kwargs
+    asyncio.run(m.OpenAICompatLabeler(setup.config).label('P', ['a']))
+    assert setup.calls[0]['extra_body'] == {'chat_template_kwargs': kwargs}
+
+
+@pytest.mark.parametrize('explicit_null', [False, True])
+def test_unset_chat_template_kwargs_are_omitted(setup, explicit_null):
+    if explicit_null:
+        setup.config['chat_template_kwargs'] = None
+    asyncio.run(m.OpenAICompatLabeler(setup.config).label('P', ['a']))
+    assert 'extra_body' not in setup.calls[0]
+
+
+@pytest.mark.parametrize('kwargs', [False, 'false', [], 1])
+def test_invalid_chat_template_kwargs_fail_at_startup(setup, kwargs):
+    setup.config['chat_template_kwargs'] = kwargs
+    with pytest.raises(ValueError, match='chat_template_kwargs must be a mapping'):
+        m.OpenAICompatLabeler(setup.config)
+    assert not setup.calls

@@ -1,11 +1,13 @@
 input: data/thinkarm/traces.jsonl
 labeler: openai
-model: gpt-5  # Set to the model you want to evaluate.
-base_url: https://api.openai.com/v1  # Change for an OpenAI-compatible server.
+model: GLM-5.3-Flash  # Set to the model you want to evaluate.
+base_url: https://llm.hpc.pcss.pl/v1 # Change for an OpenAI-compatible server.
 batch_size: 20
 concurrency: 16
 traces_in_flight: 2
 response_format: json_schema
 temperature: null
 max_tokens: null
+chat_template_kwargs:
+  enable_thinking: false
 guidebook: ThinkARM/guidebook/sentence_guide.md

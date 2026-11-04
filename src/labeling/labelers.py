@@ -90,6 +90,11 @@ class OpenAICompatLabeler:
         else:
             raise ValueError('response_format must be json_schema or json_object')
         self.options = {key: config[key] for key in ('temperature', 'max_tokens') if config.get(key) is not None}
+        template_kwargs = config.get('chat_template_kwargs')
+        if template_kwargs is not None:
+            if not isinstance(template_kwargs, dict):
+                raise ValueError('chat_template_kwargs must be a mapping or null')
+            self.options['extra_body'] = {'chat_template_kwargs': template_kwargs}
 
     async def _batch(self, problem, context, sentences):
         prompt = build_prompt(problem, context, sentences, guidebook=self.guidebook)

@@ -21,7 +21,7 @@
 
 ## Evaluate a model against human labels
 
-Run commands from the repository root. The included `configs/example.yaml`
+Run commands from the repository root. The included `configs/label.yaml`
 already points to the evaluation data created below. Use it directly; no config
 copy or input-path edit is needed for this workflow.
 
@@ -36,8 +36,9 @@ copy or input-path edit is needed for this workflow.
    `LABELER_API_KEY` instead; it takes precedence. Existing shell values take
    precedence over `.env`. Both `.env` and `.env.*` are gitignored.
 
-2. Open `configs/example.yaml`. It is configured for `gpt-5` at
-   `https://api.openai.com/v1`. Set `model` to the model you want to evaluate.
+2. Open `configs/label.yaml`. Set `model` to the model you want to evaluate
+   and `base_url` to your provider's API root. For OpenAI, use
+   `https://api.openai.com/v1`.
    If using an OpenAI-compatible server such as LiteLLM, fill in its `base_url`
    (for example, `http://localhost:4000/v1`) and the model name it serves.
 
@@ -63,7 +64,7 @@ copy or input-path edit is needed for this workflow.
    configured provider:
 
    ```bash
-   uv run python -m labeling label configs/example.yaml --run thinkarm-1
+   uv run python -m labeling label configs/label.yaml --run thinkarm-1
    ```
 
 5. Compare the predictions against the human labels:
@@ -83,6 +84,24 @@ Only `concurrency` and `traces_in_flight` may change when resuming. For a differ
 model or other config changes, use a new run name. Paths in the config are
 relative to the repository root.
 
+## Control reasoning on vLLM
+
+The included `configs/label.yaml` disables thinking for vLLM models whose chat
+template supports `enable_thinking`:
+
+```yaml
+chat_template_kwargs:
+  enable_thinking: false
+```
+
+Some model templates use `thinking: false` instead; use the switch supported by
+your served model. Set the switch to `true` to enable thinking explicitly, or
+leave `chat_template_kwargs: null` to use the server default. Keep it `null` for
+OpenAI or servers that do not support chat template arguments.
+
+Use a new run name after changing this setting. The per-sentence `reason` in the
+label output is still requested; it is separate from the model's thinking mode.
+
 ## Label full ThinkARM traces
 
 Without `--human-only`, the converter exports every full reasoning trace,
@@ -99,11 +118,11 @@ model:
 uv run python scripts/convert_thinkarm.py deepseekR1 --limit 20 --out data/thinkarm-20
 ```
 
-Set `input` in `configs/example.yaml` to `data/thinkarm-20/traces.jsonl`, then
+Set `input` in `configs/label.yaml` to `data/thinkarm-20/traces.jsonl`, then
 label them with a new run name:
 
 ```bash
-uv run python -m labeling label configs/example.yaml --run thinkarm-20
+uv run python -m labeling label configs/label.yaml --run thinkarm-20
 ```
 
 Both modes write `traces.jsonl` and `human.jsonl`. The latter contains only the
