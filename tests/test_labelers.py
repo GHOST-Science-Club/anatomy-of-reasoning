@@ -69,6 +69,7 @@ def test_context_and_prediction(setup):
     assert '\n'.join(sentences[:20]) in context
     assert sentences[20] not in context
     assert '[1] Sentence 20.' in prompt
+    assert 'Guide {x}' in prompt
     assert setup.calls[0]['messages'][0]['role'] == 'user'
 
 

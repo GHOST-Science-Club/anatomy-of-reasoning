@@ -1,6 +1,7 @@
 import asyncio
 from dataclasses import asdict
 import json
+import os
 from pathlib import Path
 import re
 import subprocess
@@ -14,6 +15,15 @@ from .splitting import process_response_to_sentences
 
 
 DEFAULTS = dict(batch_size=20, concurrency=16, traces_in_flight=2, response_format='json_schema')
+
+
+def redact_error(error):
+    text = str(error)
+    for key in ('OPENAI_API_KEY', 'LABELER_API_KEY'):
+        value = os.getenv(key)
+        if value:
+            text = text.replace(value, '[redacted]')
+    return text
 
 
 def load_config(path):
@@ -122,7 +132,7 @@ async def run(config_path, name):
                     succeeded += 1
                 except Exception as exc:
                     failed.append(row['id'])
-                    tqdm.write(f'Failed {row["id"]}: {exc}')
+                    tqdm.write(f'Failed {row["id"]}: {redact_error(exc)}')
                 finally:
                     progress.update(1)
         await asyncio.gather(*(worker() for _ in range(min(config.get('traces_in_flight', 2), len(pending)))))

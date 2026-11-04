@@ -1,7 +1,7 @@
 import argparse
 import asyncio
 
-from .run import run
+from .run import redact_error, run
 
 
 def main(argv=None):
@@ -21,7 +21,7 @@ def main(argv=None):
         score(args.labels, args.human)
         return 0
     except (ValueError, OSError) as exc:
-        parser.exit(1, f'error: {exc}\n')
+        parser.exit(1, f'error: {redact_error(exc)}\n')
 
 
 if __name__ == '__main__':

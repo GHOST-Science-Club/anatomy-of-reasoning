@@ -169,3 +169,48 @@ def test_malformed_middle_line_is_not_ignored(setup):
     Path('runs/trial/labels.jsonl').write_text('{bad}\n{"id":"good","sentences":[]}\n')
     with pytest.raises(ValueError):
         asyncio.run(m.run(setup[0], 'trial'))
+
+
+def test_cli_failure_then_resume_and_secret_free_metadata(setup, monkeypatch):
+    path, config, calls, fail, _ = setup
+    monkeypatch.setenv('OPENAI_API_KEY', 'private-test-openai-key')
+    monkeypatch.setenv('LABELER_API_KEY', 'private-test-labeler-key')
+    assert main(['label', str(path), '--run', 'cli']) == 1
+    calls.clear()
+    fail[0] = False
+    assert main(['label', str(path), '--run', 'cli']) == 0
+    assert calls == [('bad', ['Given.'])]
+    calls.clear()
+    before = Path('runs/cli/labels.jsonl').read_bytes()
+    assert main(['label', str(path), '--run', 'cli']) == 0
+    assert not calls
+    assert Path('runs/cli/labels.jsonl').read_bytes() == before
+    for name in ['config.yaml', 'meta.json']:
+        text = Path('runs/cli', name).read_text()
+        assert 'private-test' not in text
+
+
+def test_failure_errors_do_not_expose_environment_keys(setup, monkeypatch, capsys):
+    monkeypatch.setenv('OPENAI_API_KEY', 'synthetic-openai-secret')
+    monkeypatch.setenv('LABELER_API_KEY', 'synthetic-local-secret')
+    class EchoingError:
+        async def label(self, problem, sentences):
+            raise ValueError('request rejected synthetic-openai-secret synthetic-local-secret')
+    monkeypatch.setitem(m.REGISTRY, 'fake', lambda config: EchoingError())
+    assert asyncio.run(m.run(setup[0], 'secret-error')) == 1
+    captured = capsys.readouterr()
+    assert 'synthetic-openai-secret' not in captured.out + captured.err
+    assert 'synthetic-local-secret' not in captured.out + captured.err
+    assert 'request rejected' in captured.out
+
+
+def test_cli_startup_errors_redact_keys(setup, monkeypatch, capsys):
+    monkeypatch.setenv('LABELER_API_KEY', 'synthetic-startup-secret')
+    def fail(config):
+        raise ValueError('startup rejected synthetic-startup-secret')
+    monkeypatch.setitem(m.REGISTRY, 'fake', fail)
+    with pytest.raises(SystemExit) as exc:
+        main(['label', str(setup[0]), '--run', 'startup'])
+    assert exc.value.code == 1
+    captured = capsys.readouterr()
+    assert 'synthetic-startup-secret' not in captured.out + captured.err
