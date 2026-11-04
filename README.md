@@ -19,99 +19,69 @@
    uv sync
    ```
 
-## Test a model
+## Evaluate a model against human labels
 
-Run commands from the repository root. Paths in the config are relative to this
-directory.
+Run commands from the repository root. The included `configs/example.yaml`
+already points to the evaluation data created below. Use it directly; no config
+copy or input-path edit is needed for this workflow.
 
-1. Copy the credentials template and edit the new file to set your API key:
-
-   ```bash
-   cp secrets.example .env
-   ```
-
-   `OPENAI_API_KEY` is used for OpenAI. `LABELER_API_KEY`, when set, takes
-   precedence. You can also set these in your shell; existing environment values
-   take precedence over `.env`. Both `.env` and `.env.*` are gitignored.
-
-2. Copy the example config, then edit `model` to the model you want to test:
+1. Set your API key in your shell or an existing `.env`. To create a credentials
+   file from the template if needed:
 
    ```bash
-   cp configs/example.yaml configs/experiment.yaml
+   cp -n secrets.example .env
    ```
 
-   For an OpenAI-compatible server such as LiteLLM, set `base_url` to its API
-   root, for example `http://localhost:4000/v1`, and set `model` to the model name
-   exposed by that server. The client appends `/chat/completions` to this root.
-   For example:
+   Edit `.env` to fill in `OPENAI_API_KEY`. For another provider, you can set
+   `LABELER_API_KEY` instead; it takes precedence. Existing shell values take
+   precedence over `.env`. Both `.env` and `.env.*` are gitignored.
 
-   ```yaml
-   model: your-model-name
-   base_url: https://your-server.example/v1
-   response_format: json_object
-   ```
+2. Open `configs/example.yaml`. It is configured for `gpt-5` at
+   `https://api.openai.com/v1`. Set `model` to the model you want to evaluate.
+   If using an OpenAI-compatible server such as LiteLLM, fill in its `base_url`
+   (for example, `http://localhost:4000/v1`) and the model name it serves.
 
-   Use `response_format: json_object` if the server does
-   not support strict JSON schemas. For a server that requires no key, leave
-   `OPENAI_API_KEY` empty and `LABELER_API_KEY` unset; the client uses a dummy key.
-   The server must accept OpenAI-compatible chat completion requests. An API with
-   a different request format or endpoint, such as `/v1/systemone`, needs its own
-   labeler implementation; changing `base_url` alone is insufficient.
+   The client appends `/chat/completions` to `base_url`. Keep
+   `response_format: json_schema` if supported; otherwise set it to
+   `json_object`. For a server that requires no key, leave `OPENAI_API_KEY`
+   empty and `LABELER_API_KEY` unset; the client uses a dummy key. APIs with a
+   different request format or endpoint, such as `/v1/systemone`, need their own
+   labeler implementation.
 
-3. Create a tiny input to check the connection and labeling flow:
+3. Convert ThinkARM's human-annotated sentence prefixes:
 
    ```bash
-   mkdir -p data
-   cat > data/traces.jsonl <<'EOF_TRACES'
-   {"id":"smoke-1","problem":"What is 2 + 2?","trace":"I need to add two and two. Two plus two equals four. The answer is 4."}
-   EOF_TRACES
+   uv run python scripts/convert_thinkarm.py deepseekR1 --human-only --out data/thinkarm
    ```
 
-   If you already have traces, set `input` in your config to their JSONL path
-   instead. Each line needs a unique string `id`, a string `problem`, and either
-   a string `trace` or a list of strings named `sentences`.
+   This creates `data/thinkarm/traces.jsonl` and `data/thinkarm/human.jsonl`.
+   `deepseekR1` selects the source of the reasoning traces; `model` in the YAML
+   selects the model that labels them. There are nine annotated prefixes for
+   this source, so you only pay to label sentences that can be scored.
 
-4. Run the model. This sends requests to the configured provider:
+4. Label the prefixes using the included config. This sends requests to your
+   configured provider:
 
    ```bash
-   uv run python -m labeling label configs/experiment.yaml --run smoke-1
+   uv run python -m labeling label configs/example.yaml --run thinkarm-1
    ```
 
-   Inspect `runs/smoke-1/labels.jsonl`: each sentence has its text, index, label,
-   reason, and optional probabilities. The run also saves the YAML configuration
-   and repository commit. This smoke test checks that labeling works; use the
-   human-label evaluation below to measure accuracy.
+5. Compare the predictions against the human labels:
 
-Repeat the same command to resume missing or failed traces. Completed traces are
-skipped, and failed traces produce a nonzero exit status. Only `concurrency` and
-`traces_in_flight` may change when resuming. For a different model or other config
-changes, use a new run name. Results are flushed after each completed trace.
-
-## Evaluate against human labels
-
-For evaluation, export only the human-annotated sentence prefixes:
-
-```bash
-uv run python scripts/convert_thinkarm.py deepseekR1 --human-only --out data/thinkarm
-```
-
-Here `deepseekR1` selects the reasoning traces; `model` in your YAML selects the
-model that labels those traces. The converter also accepts several source model
-names in one command. For `deepseekR1`, `--human-only` currently exports nine
-annotated prefixes, so you only pay to label sentences that can be scored.
-
-Change `input` in `configs/experiment.yaml` to `data/thinkarm/traces.jsonl`, then
-label and score with a new run name:
-
-```bash
-uv run python -m labeling label configs/experiment.yaml --run thinkarm-1
-uv run python -m labeling evaluate --labels runs/thinkarm-1/labels.jsonl --human data/thinkarm/human.jsonl
-```
+   ```bash
+   uv run python -m labeling evaluate --labels runs/thinkarm-1/labels.jsonl --human data/thinkarm/human.jsonl
+   ```
 
 Evaluation prints accuracy, Cohen's kappa, scored sentence and trace counts,
 skipped ids, and a confusion matrix. Missing traces and traces with mismatched
-sentence text are reported and excluded from scoring. You can supply your own
-human JSONL with the same ids and sentence `index`, `text`, and `label` fields.
+sentence text are reported and excluded from scoring.
+
+Predictions are saved to `runs/thinkarm-1/labels.jsonl`, along with the config and
+repository commit. Repeat the labeling command to resume missing or failed
+traces; completed traces are skipped. Failures produce a nonzero exit status.
+Only `concurrency` and `traces_in_flight` may change when resuming. For a different
+model or other config changes, use a new run name. Paths in the config are
+relative to the repository root.
 
 ## Label full ThinkARM traces
 
@@ -129,10 +99,11 @@ model:
 uv run python scripts/convert_thinkarm.py deepseekR1 --limit 20 --out data/thinkarm-20
 ```
 
-Set `input` in your YAML to `data/thinkarm-20/traces.jsonl`, then label them:
+Set `input` in `configs/example.yaml` to `data/thinkarm-20/traces.jsonl`, then
+label them with a new run name:
 
 ```bash
-uv run python -m labeling label configs/experiment.yaml --run thinkarm-20
+uv run python -m labeling label configs/example.yaml --run thinkarm-20
 ```
 
 Both modes write `traces.jsonl` and `human.jsonl`. The latter contains only the

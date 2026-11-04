@@ -1,7 +1,7 @@
-input: data/traces.jsonl
+input: data/thinkarm/traces.jsonl
 labeler: openai
-model: gpt-5
-base_url: null
+model: gpt-5  # Set to the model you want to evaluate.
+base_url: https://api.openai.com/v1  # Change for an OpenAI-compatible server.
 batch_size: 20
 concurrency: 16
 traces_in_flight: 2
