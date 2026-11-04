@@ -1,0 +1,24 @@
+{
+  "enabledPlugins": {
+    "superpowers@claude-plugins-official": true
+  },
+  "permissions": {
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Read(**/.env)",
+      "Read(**/.env.*)",
+      "Edit(**/.env)",
+      "Edit(**/.env.*)",
+      "Write(**/.env)",
+      "Write(**/.env.*)",
+      "Bash(cat *.env*)",
+      "Bash(cat **/.env*)",
+      "Bash(grep * *.env*)",
+      "Bash(head * *.env*)",
+      "Bash(tail * *.env*)",
+      "Bash(less *.env*)",
+      "Bash(source *.env*)"
+    ]
+  }
+}
