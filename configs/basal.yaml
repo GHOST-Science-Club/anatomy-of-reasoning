@@ -1,0 +1,7 @@
+input: data/thinkarm/traces.jsonl
+labeler: basal
+model: Remek/basal-2.0-4.5B  # Recorded only; the server decides which model runs.
+base_url: http://localhost:8000  # basal-serve address (no /v1).
+concurrency: 32  # Requests in flight; the server batches them on the GPU.
+traces_in_flight: 4
+guidebook: src/labeling/prompts/basal.md  # Question and one-line label criteria.

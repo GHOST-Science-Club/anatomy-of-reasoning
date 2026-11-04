@@ -11,6 +11,7 @@ import random
 import re
 from typing import Protocol
 
+from httpx import AsyncClient, HTTPStatusError, TransportError
 from openai import APIConnectionError, APIStatusError, AsyncOpenAI
 
 LABELS = ['Read', 'Analyze', 'Plan', 'Implement', 'Explore', 'Verify', 'Monitor', 'Answer']
@@ -193,4 +194,71 @@ class OpenAICompatLabeler:
         return [prediction for batch in batches for prediction in batch]
 
 
-REGISTRY: dict[str, Callable[[dict], Labeler]] = {'openai': OpenAICompatLabeler}
+BASAL_TARGET = '\n\nTARGET SENTENCE:\n'
+
+
+def load_basal_question(path):
+    """Read the instructions (first paragraph) and `Label: description` criteria lines."""
+    instructions, _, rest = Path(path).read_text(encoding='utf-8').strip().partition('\n\n')
+    criteria = dict(line.split(': ', 1) for line in rest.splitlines() if line.strip())
+    if list(criteria) != LABELS:
+        raise ValueError(f'{path} must describe exactly these labels in order: {LABELS}')
+    return {'type': 'choice', 'instructions': instructions, 'criteria': criteria}
+
+
+def build_basal_state(problem, earlier, target):
+    context = '\n'.join(earlier) if earlier else '(none)'
+    return f'PROBLEM:\n{problem}\n\nEARLIER SENTENCES:\n{context}{BASAL_TARGET}{target}'
+
+
+def parse_basal_answer(data):
+    """Turn a /v1/systemone response into a Prediction; raise ValueError on an invalid choice."""
+    try:
+        answer = data['answers']['label']
+        if answer['choice'] not in LABELS:
+            raise ValueError(f'unknown choice {answer["choice"]!r}')
+        return Prediction(answer['choice'], None, dict(answer['probabilities']))
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError(f'Invalid basal response: {exc}') from exc
+
+
+class BasalLabeler:
+    """Labels each sentence with one /v1/systemone choice request to a basal-serve server."""
+
+    def __init__(self, config):
+        self.question = load_basal_question(config.get('guidebook', PROMPTS / 'basal.md'))
+        self.url = config.get('base_url', 'http://localhost:8000').rstrip('/') + '/v1/systemone'
+        self.semaphore = asyncio.Semaphore(config.get('concurrency', 16))
+        self.client = AsyncClient(timeout=300)
+
+    async def _sentence(self, problem, earlier, target):
+        body = {
+            'state': build_basal_state(problem, earlier, target),
+            'questions': {'label': self.question},
+        }
+        for attempt in range(MAX_ATTEMPTS):
+            try:
+                async with self.semaphore:
+                    response = await self.client.post(self.url, json=body)
+                response.raise_for_status()
+                break
+            except (HTTPStatusError, TransportError) as exc:
+                status = getattr(getattr(exc, 'response', None), 'status_code', None)
+                retryable = status is None or status == 429 or status >= 500
+                if not retryable or attempt == MAX_ATTEMPTS - 1:
+                    raise
+                await sleep(backoff(attempt))
+        return parse_basal_answer(response.json())
+
+    async def label(self, problem: str, sentences: list[str]) -> list[Prediction]:
+        return list(
+            await asyncio.gather(
+                *(self._sentence(problem, sentences[:i], s) for i, s in enumerate(sentences))
+            )
+        )
+
+
+REGISTRY: dict[str, Callable[[dict], Labeler]] = {
+    'openai': OpenAICompatLabeler,
+    'basal': BasalLabeler,
+}

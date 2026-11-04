@@ -95,6 +95,38 @@ Both modes also write available matching annotations to `human.jsonl`; evaluatio
 scores only those annotated prefixes. `--limit` works with `--human-only` too.
 Multiple source models can be supplied before the options; ids remain stable.
 
+## Label with basal (optional)
+
+[`Remek/basal-2.0-4.5B`](https://huggingface.co/Remek/basal-2.0-4.5B) is a classifier: it
+returns a probability for each of the eight labels in one forward pass, without generating text.
+It runs as a separate server on an NVIDIA GPU. Skip this section if you do not use it; the
+default install does not need it.
+
+The engine needs Python 3.12 and its own torch, so install it in a separate environment (not
+this repository's). The cu128 torch needs an NVIDIA driver for CUDA 12.8 or newer:
+
+```bash
+uv venv --python 3.12 --allow-existing ~/basal-env && source ~/basal-env/bin/activate
+uv pip install torch==2.11.0 --index-url https://download.pytorch.org/whl/cu128
+uv pip install "basal[fp8] @ https://github.com/rkinas/basal/archive/refs/tags/v2.5.3.tar.gz"
+basal-serve --model Remek/basal-2.0-4.5B --mode fast --template-prefix off --port 8000
+```
+
+Wait for `basal: model ... ready` (the first start downloads the model and compiles, which takes
+several minutes). Then, from this repository, in another shell:
+
+```bash
+uv run python -m labeling label configs/basal.yaml --run basal-1
+uv run python -m labeling evaluate --labels runs/basal-1/labels.jsonl --human data/thinkarm/human.jsonl
+```
+
+`configs/basal.yaml` sets the server address (`base_url`), `concurrency` and the prompt file
+(`guidebook`, the question and one-line label descriptions). Each sentence is one request that
+sees the problem and all earlier sentences; `labels.jsonl` stores every label's probability in
+`probs`. The model's context is 32k tokens; for longer states the server drops the middle of the
+state by default. The run prints the labeling time per trace and per sentence for comparison with
+an LLM run on the same traces.
+
 ## Development
 
 Run offline tests with `uv run pytest`.
