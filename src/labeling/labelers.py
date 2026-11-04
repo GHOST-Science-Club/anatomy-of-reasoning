@@ -251,11 +251,17 @@ class BasalLabeler:
         return parse_basal_answer(response.json())
 
     async def label(self, problem: str, sentences: list[str]) -> list[Prediction]:
-        return list(
-            await asyncio.gather(
-                *(self._sentence(problem, sentences[:i], s) for i, s in enumerate(sentences))
-            )
-        )
+        tasks = [
+            asyncio.create_task(self._sentence(problem, sentences[:i], sentence))
+            for i, sentence in enumerate(sentences)
+        ]
+        try:
+            return list(await asyncio.gather(*tasks))
+        except BaseException:
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+            raise
 
 
 REGISTRY: dict[str, Callable[[dict], Labeler]] = {

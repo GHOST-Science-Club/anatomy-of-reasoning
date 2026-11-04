@@ -156,3 +156,25 @@ def test_prompt_file_must_describe_all_labels(tmp_path):
     prompt.write_text('Which category?\n\nRead: restates.\nAnalyze: infers.\n')
     with pytest.raises(ValueError, match='labels'):
         m.BasalLabeler({'guidebook': str(prompt)})
+
+
+def test_failure_cancels_other_requests(server, monkeypatch):
+    completed = []
+
+    async def post(self, url, json):
+        request = httpx.Request('POST', url)
+        if json['state'].endswith('Bad.'):
+            return httpx.Response(400, request=request)
+        await asyncio.sleep(0.2)
+        completed.append(json['state'])
+        return httpx.Response(200, json=envelope('Read'), request=request)
+
+    async def run():
+        labeler = m.BasalLabeler({'model': 'basal'})
+        with pytest.raises(httpx.HTTPStatusError):
+            await labeler.label('P', ['Slow.', 'Bad.', 'Slow too.'])
+        await asyncio.sleep(0.3)
+
+    monkeypatch.setattr(httpx.AsyncClient, 'post', post)
+    asyncio.run(run())
+    assert completed == []
