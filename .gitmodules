@@ -1,0 +1,3 @@
+[submodule "ThinkARM"]
+	path = ThinkARM
+	url = https://github.com/MingLiiii/ThinkARM
