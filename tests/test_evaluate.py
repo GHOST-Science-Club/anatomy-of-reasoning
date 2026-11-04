@@ -1,15 +1,19 @@
 import json
 
-import pytest
-
 from labeling.evaluate import evaluate
 from labeling.labelers import LABELS
 
 
 def record(id, labels, texts=None, indices=None):
-    return {'id': id, 'sentences': [
-        {'index': i if indices is None else indices[i], 'text': text, 'label': label}
-        for i, (text, label) in enumerate(zip(texts or [f's{i}' for i in range(len(labels))], labels))]}
+    return {
+        'id': id,
+        'sentences': [
+            {'index': i if indices is None else indices[i], 'text': text, 'label': label}
+            for i, (text, label) in enumerate(
+                zip(texts or [f's{i}' for i in range(len(labels))], labels)
+            )
+        ],
+    }
 
 
 def score(tmp_path, predicted, human):
@@ -41,8 +45,11 @@ def test_perfect_and_hand_computed_scores(tmp_path, capsys):
 
 def test_text_mismatch_and_missing_trace_are_reported(tmp_path, capsys):
     good = record('good', ['Read', 'Answer'])
-    result = score(tmp_path, [good, record('bad', ['Read'], ['different'])],
-                   [good, record('bad', ['Read']), record('missing', ['Read'])])
+    result = score(
+        tmp_path,
+        [good, record('bad', ['Read'], ['different'])],
+        [good, record('bad', ['Read']), record('missing', ['Read'])],
+    )
     assert result['accuracy'] == 1.0
     assert result['sentences'] == 2 and result['traces'] == 1
     assert result['skipped'] == ['bad', 'missing']
@@ -52,8 +59,11 @@ def test_text_mismatch_and_missing_trace_are_reported(tmp_path, capsys):
 
 
 def test_index_alignment_and_extra_predictions(tmp_path):
-    result = score(tmp_path, [record('x', ['Answer', 'Read', 'Explore'], ['s1', 's0', 'extra'], [1, 0, 2])],
-                   [record('x', ['Read', 'Answer'])])
+    result = score(
+        tmp_path,
+        [record('x', ['Answer', 'Read', 'Explore'], ['s1', 's0', 'extra'], [1, 0, 2])],
+        [record('x', ['Read', 'Answer'])],
+    )
     assert result['accuracy'] == result['kappa'] == 1.0
     assert result['sentences'] == 2
 

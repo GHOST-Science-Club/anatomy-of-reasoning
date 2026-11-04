@@ -6,12 +6,19 @@ from labeling.labelers import OpenAICompatLabeler, build_prompt
 
 
 def test_prompt_content_order_and_braces():
-    prompt = build_prompt('Problem {n} {sentences} {x}', '', ['a', 'b'], guidebook='Guide {problem}')
+    prompt = build_prompt(
+        'Problem {n} {sentences} {x}', '', ['a', 'b'], guidebook='Guide {problem}'
+    )
     tags = ['[Guidebook]\n', '[Math Problem]\n', '[Previous Context]\n', '[Input]\n', '[Format]\n']
     positions = [prompt.index(tag) for tag in tags]
     assert positions == sorted(positions)
-    for text in ['Guide {problem}', 'Problem {n} {sentences} {x}', '[1] a\n[2] b',
-                 'There is no previous sentences.', 'label for 2 sentences.']:
+    for text in [
+        'Guide {problem}',
+        'Problem {n} {sentences} {x}',
+        '[1] a\n[2] b',
+        'There is no previous sentences.',
+        'label for 2 sentences.',
+    ]:
         assert text in prompt
     assert '{guidebook}' not in prompt
     assert '{context}' not in prompt

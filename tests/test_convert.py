@@ -4,7 +4,9 @@ from pathlib import Path
 
 import pytest
 
-spec = importlib.util.spec_from_file_location('convert_thinkarm', Path(__file__).resolve().parents[1] / 'scripts/convert_thinkarm.py')
+spec = importlib.util.spec_from_file_location(
+    'convert_thinkarm', Path(__file__).resolve().parents[1] / 'scripts/convert_thinkarm.py'
+)
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 
@@ -14,13 +16,33 @@ def fixture(root, model, annotated=(1, 2)):
     ground = root / 'ThinkARM/data/ground_truth' / model
     raw.mkdir(parents=True, exist_ok=True)
     ground.mkdir(parents=True)
-    (raw / f'{model}.json').write_text(json.dumps([
-        {'Instruction': f'Problem {i}', 'Response': f'Full reasoning {i}. Answer.'}
-        for i in range(1, 13)]))
+    (raw / f'{model}.json').write_text(
+        json.dumps(
+            [
+                {'Instruction': f'Problem {i}', 'Response': f'Full reasoning {i}. Answer.'}
+                for i in range(1, 13)
+            ]
+        )
+    )
     for i in annotated:
-        (ground / f'{i}.json').write_text(json.dumps([
-            {'index': 1, 'sentence': f'Text {i}', 'sentence-type': 'think', 'human_label': 'Read'},
-            {'index': 2, 'sentence': 'Answer', 'sentence-type': 'answer', 'human_label': 'Answer'}]))
+        (ground / f'{i}.json').write_text(
+            json.dumps(
+                [
+                    {
+                        'index': 1,
+                        'sentence': f'Text {i}',
+                        'sentence-type': 'think',
+                        'human_label': 'Read',
+                    },
+                    {
+                        'index': 2,
+                        'sentence': 'Answer',
+                        'sentence-type': 'answer',
+                        'human_label': 'Answer',
+                    },
+                ]
+            )
+        )
 
 
 def read_output(folder, name):
@@ -36,8 +58,13 @@ def test_default_exports_all_full_traces_and_available_human_labels(tmp_path, mo
     assert len(traces) == 24 and len(human) == 4
     assert traces[0] == {'id': 'm1-1', 'problem': 'Problem 1', 'trace': 'Full reasoning 1. Answer.'}
     assert traces[-1]['id'] == 'm2-12'
-    assert human[0] == {'id': 'm1-1', 'sentences': [
-        {'index': 0, 'text': 'Text 1', 'label': 'Read'}, {'index': 1, 'text': 'Answer', 'label': 'Answer'}]}
+    assert human[0] == {
+        'id': 'm1-1',
+        'sentences': [
+            {'index': 0, 'text': 'Text 1', 'label': 'Read'},
+            {'index': 1, 'text': 'Answer', 'label': 'Answer'},
+        ],
+    }
     assert '24 traces' in capsys.readouterr().out
 
 

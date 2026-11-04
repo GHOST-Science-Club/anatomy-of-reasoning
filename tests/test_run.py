@@ -6,8 +6,8 @@ import pytest
 import yaml
 
 from labeling import run as m
-from labeling.labelers import Prediction
 from labeling.__main__ import main
+from labeling.labelers import Prediction
 
 
 def write_jsonl(path, records):
@@ -18,11 +18,19 @@ def write_jsonl(path, records):
 def setup(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(m, 'load_dotenv', lambda: None)
-    records = [{'id': 'good', 'problem': 'P', 'trace': 'First. Second.'},
-               {'id': 'bad', 'problem': 'bad', 'sentences': ['Given.']},
-               {'id': 'empty', 'problem': 'P', 'sentences': []}]
+    records = [
+        {'id': 'good', 'problem': 'P', 'trace': 'First. Second.'},
+        {'id': 'bad', 'problem': 'bad', 'sentences': ['Given.']},
+        {'id': 'empty', 'problem': 'P', 'sentences': []},
+    ]
     write_jsonl(Path('input.jsonl'), records)
-    config = {'input': 'input.jsonl', 'labeler': 'fake', 'model': 'test', 'concurrency': 2, 'traces_in_flight': 2}
+    config = {
+        'input': 'input.jsonl',
+        'labeler': 'fake',
+        'model': 'test',
+        'concurrency': 2,
+        'traces_in_flight': 2,
+    }
     config_path = Path('config.yaml')
     config_path.write_text(yaml.safe_dump(config))
     calls = []
@@ -49,7 +57,13 @@ def test_failure_resume_metadata_and_idempotence(setup, capsys):
     assert {row['id'] for row in saved} == {'good', 'empty'}
     assert (folder / 'config.yaml').read_bytes() == config_path.read_bytes()
     assert 'commit' in json.loads((folder / 'meta.json').read_text())
-    assert saved[0]['sentences'][0] == {'index': 0, 'text': 'First.', 'label': 'Read', 'reason': 'reason', 'probs': {'Read': 1.0}}
+    assert saved[0]['sentences'][0] == {
+        'index': 0,
+        'text': 'First.',
+        'label': 'Read',
+        'reason': 'reason',
+        'probs': {'Read': 1.0},
+    }
     assert saved[1]['sentences'] == []
     with output.open('a') as f:
         f.write('{"id": "torn')
@@ -57,7 +71,11 @@ def test_failure_resume_metadata_and_idempotence(setup, capsys):
     fail[0] = False
     assert asyncio.run(m.run(config_path, 'trial')) == 0
     assert calls == [('bad', ['Given.'])]
-    assert {json.loads(line)['id'] for line in output.read_text().splitlines()} == {'good', 'bad', 'empty'}
+    assert {json.loads(line)['id'] for line in output.read_text().splitlines()} == {
+        'good',
+        'bad',
+        'empty',
+    }
     before = output.read_bytes()
     calls.clear()
     assert asyncio.run(m.run(config_path, 'trial')) == 0
@@ -81,20 +99,25 @@ def test_resume_configuration_guard(setup):
 def test_presplit_bypasses_splitter(setup, monkeypatch):
     path, _, _, fail, records = setup
     write_jsonl(Path('input.jsonl'), [records[1]])
-    monkeypatch.setattr(m, 'process_response_to_sentences', lambda _: pytest.fail('splitter called'))
+    monkeypatch.setattr(
+        m, 'process_response_to_sentences', lambda _: pytest.fail('splitter called')
+    )
     fail[0] = False
     assert asyncio.run(m.run(path, 'trial')) == 0
 
 
-@pytest.mark.parametrize('records', [
-    [{'id': 'x', 'problem': 'P', 'trace': 'a', 'sentences': ['a']}],
-    [{'id': 'x', 'problem': 'P'}],
-    [{'id': 1, 'problem': 'P', 'trace': 'a'}],
-    [{'id': 'x', 'problem': 2, 'trace': 'a'}],
-    [{'id': 'x', 'problem': 'P', 'trace': []}],
-    [{'id': 'x', 'problem': 'P', 'sentences': [1]}],
-    [{'id': 'x', 'problem': 'P', 'trace': 'a'}] * 2,
-])
+@pytest.mark.parametrize(
+    'records',
+    [
+        [{'id': 'x', 'problem': 'P', 'trace': 'a', 'sentences': ['a']}],
+        [{'id': 'x', 'problem': 'P'}],
+        [{'id': 1, 'problem': 'P', 'trace': 'a'}],
+        [{'id': 'x', 'problem': 2, 'trace': 'a'}],
+        [{'id': 'x', 'problem': 'P', 'trace': []}],
+        [{'id': 'x', 'problem': 'P', 'sentences': [1]}],
+        [{'id': 'x', 'problem': 'P', 'trace': 'a'}] * 2,
+    ],
+)
 def test_invalid_input_rejected_before_calls(setup, records):
     path, _, calls, _, _ = setup
     write_jsonl(Path('input.jsonl'), records)
@@ -112,7 +135,15 @@ def test_unknown_labeler_lists_registry(setup):
     assert not calls
 
 
-@pytest.mark.parametrize('change', [{'batch_size': 0}, {'concurrency': True}, {'traces_in_flight': -1}, {'response_format': 'invalid'}])
+@pytest.mark.parametrize(
+    'change',
+    [
+        {'batch_size': 0},
+        {'concurrency': True},
+        {'traces_in_flight': -1},
+        {'response_format': 'invalid'},
+    ],
+)
 def test_invalid_config(setup, change):
     path, config, _, _, _ = setup
     config.update(change)
@@ -137,16 +168,23 @@ def test_prediction_count_guard(setup, monkeypatch):
     class Short:
         async def label(self, *args):
             return []
+
     monkeypatch.setitem(m.REGISTRY, 'fake', lambda c: Short())
     assert asyncio.run(m.run(setup[0], 'trial')) == 1
-    assert [json.loads(line)['id'] for line in Path('runs/trial/labels.jsonl').read_text().splitlines()] == ['empty']
+    assert [
+        json.loads(line)['id'] for line in Path('runs/trial/labels.jsonl').read_text().splitlines()
+    ] == ['empty']
 
 
 def test_trace_limit_and_completion_order(setup, monkeypatch):
     path, config, _, _, _ = setup
-    write_jsonl(Path('input.jsonl'), [{'id': str(i), 'problem': str(i), 'sentences': ['s']} for i in range(8)])
+    write_jsonl(
+        Path('input.jsonl'),
+        [{'id': str(i), 'problem': str(i), 'sentences': ['s']} for i in range(8)],
+    )
     active = peak = 0
     started = []
+
     class Limited:
         async def label(self, problem, sentences):
             nonlocal active, peak
@@ -156,6 +194,7 @@ def test_trace_limit_and_completion_order(setup, monkeypatch):
             await asyncio.sleep(0.02 if problem == '0' else 0)
             active -= 1
             return [Prediction('Read')]
+
     monkeypatch.setitem(m.REGISTRY, 'fake', lambda c: Limited())
     assert asyncio.run(m.run(path, 'trial')) == 0
     assert peak == 2
@@ -193,9 +232,11 @@ def test_cli_failure_then_resume_and_secret_free_metadata(setup, monkeypatch):
 def test_failure_errors_do_not_expose_environment_keys(setup, monkeypatch, capsys):
     monkeypatch.setenv('OPENAI_API_KEY', 'synthetic-openai-secret')
     monkeypatch.setenv('LABELER_API_KEY', 'synthetic-local-secret')
+
     class EchoingError:
         async def label(self, problem, sentences):
             raise ValueError('request rejected synthetic-openai-secret synthetic-local-secret')
+
     monkeypatch.setitem(m.REGISTRY, 'fake', lambda config: EchoingError())
     assert asyncio.run(m.run(setup[0], 'secret-error')) == 1
     captured = capsys.readouterr()
@@ -206,8 +247,10 @@ def test_failure_errors_do_not_expose_environment_keys(setup, monkeypatch, capsy
 
 def test_cli_startup_errors_redact_keys(setup, monkeypatch, capsys):
     monkeypatch.setenv('LABELER_API_KEY', 'synthetic-startup-secret')
+
     def fail(config):
         raise ValueError('startup rejected synthetic-startup-secret')
+
     monkeypatch.setitem(m.REGISTRY, 'fake', fail)
     with pytest.raises(SystemExit) as exc:
         main(['label', str(setup[0]), '--run', 'startup'])
