@@ -16,9 +16,22 @@ dependencies = [
     "scipy>=1.18.1",
     "tiktoken>=0.14.0",
     "tqdm>=4.70.1",
-    "transformers>=5.22.1",
+    "transformers>=5.17",
     "wordcloud>=1.9.6",
 ]
+
+[project.optional-dependencies]
+# basal-serve on an NVIDIA GPU (driver for CUDA 12.8+): uv sync --extra basal
+basal = ["basal[fp8]", "torch==2.11.0"]
+
+[tool.uv.sources]
+basal = { url = "https://github.com/rkinas/basal/archive/refs/tags/v2.5.3.tar.gz" }
+torch = { index = "pytorch-cu128", extra = "basal" }
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
 
 [build-system]
 requires = ["hatchling"]

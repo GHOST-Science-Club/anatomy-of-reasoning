@@ -13,13 +13,14 @@ text. It runs on the user's own NVIDIA GPU.
   run, resume, evaluate flow without changes to those.
 - **Speed is the main goal.** Compare wall-clock time (the existing per-trace and per-sentence
   timing output) and accuracy/kappa against an LLM run on the same traces.
-- Default install is unchanged: no new entries in `dependencies`, no torch or CUDA.
+- Default install is unchanged: no new entries in `dependencies`, no torch or CUDA. basal is an
+  optional extra in the same environment: `uv sync --extra basal`.
 - The README tells the user how to set up and run the server, and says it can be skipped.
 
 ## Non-goals
 
 - No fine-tuning or training. This is a zero-shot test.
-- No in-process model loading and no `pyproject.toml` extra (see decisions).
+- No in-process model loading (see decisions).
 - ThinkARM is not edited.
 - **The agent does not benchmark or run evaluations.** No full labeling runs, timing
   comparisons, or accuracy/kappa measurements. The user runs those. The agent may install basal on
@@ -33,23 +34,19 @@ text. It runs on the user's own NVIDIA GPU.
 
 ## Decisions
 
-**Server, not in-process.** The user runs `basal-serve` on their GPU machine; the repo only sends
-HTTP requests. Reason: the engine installs from a GitHub tarball, pins `torch==2.11.0` from the
-cu128 index, and the model card's example uses Python 3.12 while this repo requires >=3.13. These
-cannot share one environment, so an extra would likely break resolution for everyone.
-
-**README section** documents the install and start commands from the model card, in a separate
-virtual environment:
+**Server, same environment.** The user runs `basal-serve` on their GPU machine; the labeler only
+sends HTTP requests. basal is the `basal` extra in `pyproject.toml`: `basal[fp8]` from the GitHub
+tarball and `torch==2.11.0` from the cu128 index, both via `[tool.uv.sources]` (the torch index
+applies only to this extra). basal requires Python >=3.10, so the repo's >=3.13 works; its
+`transformers==5.17.0` pin needed the repo's unused `transformers` lower bound relaxed to 5.17.
 
 ```bash
-uv venv --python 3.12 ~/basal-env && source ~/basal-env/bin/activate
-uv pip install torch==2.11.0 --index-url https://download.pytorch.org/whl/cu128
-uv pip install "basal[fp8] @ https://github.com/rkinas/basal/archive/refs/tags/v2.5.3.tar.gz"
-basal-serve --model Remek/basal-2.0-4.5B --mode fast --template-prefix off --port 8000
+uv sync --extra basal
+uv run basal-serve --model Remek/basal-2.0-4.5B --mode fast --template-prefix off --port 8000
 ```
 
-It also notes the CUDA 12.8-compatible driver requirement and `configs/basal.yaml` as the
-matching run config. The README should verify these commands against the model card when written.
+The README notes the CUDA 12.8-compatible driver requirement and `configs/basal.yaml` as the
+matching run config.
 
 **Labeler.** `BasalLabeler` in `labelers.py` (or a small sibling module), registered in
 `REGISTRY['basal']`. It uses `httpx`, already installed through `openai`, so no new dependency.

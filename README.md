@@ -99,18 +99,18 @@ Multiple source models can be supplied before the options; ids remain stable.
 
 [`Remek/basal-2.0-4.5B`](https://huggingface.co/Remek/basal-2.0-4.5B) is a classifier: it
 returns a probability for each of the eight labels in one forward pass, without generating text.
-It runs as a separate server on an NVIDIA GPU. Skip this section if you do not use it; the
-default install does not need it.
+It runs as a server on an NVIDIA GPU. Skip this section if you do not use it; the default
+install does not need it.
 
-The engine needs Python 3.12 and its own torch, so install it in a separate environment (not
-this repository's). The cu128 torch needs an NVIDIA driver for CUDA 12.8 or newer:
+Install it into this repository's environment with the `basal` extra (it adds torch built for
+CUDA 12.8, so it needs an NVIDIA driver for CUDA 12.8 or newer), then start the server:
 
 ```bash
-uv venv --python 3.12 --allow-existing ~/basal-env && source ~/basal-env/bin/activate
-uv pip install torch==2.11.0 --index-url https://download.pytorch.org/whl/cu128
-uv pip install "basal[fp8] @ https://github.com/rkinas/basal/archive/refs/tags/v2.5.3.tar.gz"
-basal-serve --model Remek/basal-2.0-4.5B --mode fast --template-prefix off --port 8000
+uv sync --extra basal
+uv run basal-serve --model Remek/basal-2.0-4.5B --mode fast --template-prefix off --port 8000
 ```
+
+A later plain `uv sync` removes the extra again; keep `--extra basal` while you use it.
 
 Wait for `basal: model ... ready` (the first start downloads the model and compiles, which takes
 several minutes). Then, from this repository, in another shell:
