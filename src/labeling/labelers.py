@@ -211,7 +211,7 @@ def load_basal_question(path):
 
 
 def build_basal_state(problem, context, sentences, guidebook):
-    """The LLM prompt's content with the batch's sentences unnumbered and no output format."""
+    """Fill `basal_state.md`; it may use any of the LLM prompt's values (sentences unnumbered)."""
     values = dict(
         guidebook=guidebook,
         problem=problem,
@@ -235,9 +235,8 @@ def parse_basal_answer(data, name):
 class BasalLabeler:
     """Labels sentences with /v1/systemone choice questions to a basal-serve server.
 
-    One request per batch of `batch_size` sentences: its state is the LLM prompt's content
-    (instructions, guidebook, problem, previous context, the batch's sentences unnumbered), and it
-    asks one question per sentence, quoting that sentence.
+    One request per batch of `batch_size` sentences: its state is filled from `basal_state.md`, and
+    it asks one question per sentence, quoting that sentence.
     """
 
     def __init__(self, config):

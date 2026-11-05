@@ -92,11 +92,8 @@ def test_request_shape(server):
     state = server.bodies[1]['state']
     assert Path(m.DEFAULT_GUIDEBOOK).read_text(encoding='utf-8') in state
     assert 'What is 2+2?' in state
-    context, batch = state.split('[Input]\nThe following')
-    assert 'First.\nSecond.' in context
-    assert '\nThird.\n' in batch and 'Third.' not in context
-    assert '[1]' not in state and 'Format' not in state and 'Overall Response' not in state
-    assert '\nFirst.\nSecond.\n[End of the Input]' in server.bodies[0]['state']
+    assert all(sentence not in state for sentence in ['First.', 'Second.', 'Third.'])
+    assert server.bodies[0]['state'] == state
     questions = server.bodies[1]['questions']
     assert list(questions) == ['s1']
     assert questions['s1']['type'] == 'choice'
@@ -196,7 +193,7 @@ def test_failure_cancels_other_requests(server, monkeypatch):
 
     async def post(self, url, json):
         request = httpx.Request('POST', url)
-        if 'Bad.' in json['state'].split('[Input]\nThe following')[1]:
+        if quoted(json['questions']['s1']) == 'Bad.':
             return httpx.Response(400, request=request)
         await asyncio.sleep(0.2)
         completed.append(json['state'])

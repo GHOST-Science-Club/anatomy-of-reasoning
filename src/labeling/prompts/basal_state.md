@@ -2,8 +2,6 @@ In this project, we aim to analyze the reasoning process of current large langua
 
 The [Guidebook] - [End of the Guidebook] section provides the detailed introduction and definition of each category.
 The [Math Problem] - [End of the Math Problem] section provides a math problem.
-The [Previous Context] - [End of the Previous Context] section provides all the previous context of the response.
-The [Input] - [End of the Input] section provides the sentences that need to be annotated, in the order they appear in the response.
 
 [Guidebook]
 {guidebook}
@@ -13,13 +11,4 @@ The [Input] - [End of the Input] section provides the sentences that need to be 
 {problem}
 [End of the Math Problem]
 
-[Previous Context]
-{context}
-[End of the Previous Context]
-
-[Input]
-The following sentences need to be classified:
-{sentences}
-[End of the Input]
-
-Each question quotes one sentence from the [Input] - [End of the Input] section. Annotate that sentence, referring to the guidebook to make the decision.
+Each question quotes one sentence of the model response to this problem. Annotate that sentence, referring to the guidebook to make the decision.

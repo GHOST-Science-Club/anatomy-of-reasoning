@@ -120,15 +120,15 @@ uv run python -m labeling label configs/basal.yaml --run basal-1
 uv run python -m labeling evaluate --labels runs/basal-1/labels.jsonl --human data/thinkarm/human.jsonl
 ```
 
-basal gets the same content as the LLM labeler. Each request covers a batch of `batch_size`
-sentences: its state (`src/labeling/prompts/basal_state.md`) holds the instructions, the full
-`guidebook`, the problem, all earlier sentences and the batch's sentences in order (unnumbered,
-without an output format), and it asks one question per sentence that quotes the sentence, with
-only the label names as options (`criteria`, `src/labeling/prompts/basal.md`). The server reads the shared
-state once per request. `configs/basal.yaml` also sets the server address (`base_url`) and
-`concurrency`; `labels.jsonl` stores every label's probability in `probs`. The model's context is
-32k tokens; the longest state for the ThinkARM traces is about 15k tokens. The run prints the
-labeling time per trace and per sentence for comparison with an LLM run on the same traces.
+Each request covers a batch of `batch_size` sentences. Its state
+(`src/labeling/prompts/basal_state.md`) holds a short task description, the full `guidebook` and
+the problem, but no other sentences of the response, so it is the same for every batch of a trace
+(about 5.5k tokens). The request asks one question per sentence that quotes the sentence, with
+only the label names as options (`criteria`, `src/labeling/prompts/basal.md`); each sentence is
+judged without its surrounding context. The server reads the shared state once per request.
+`configs/basal.yaml` also sets the server address (`base_url`) and `concurrency`; `labels.jsonl`
+stores every label's probability in `probs`. The run prints the labeling time per trace and per
+sentence for comparison with an LLM run on the same traces.
 
 ## Development
 
