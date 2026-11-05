@@ -6,4 +6,4 @@ batch_size: 20  # Same as configs/llm.yaml, so both labelers see the same contex
 concurrency: 8  # Requests in flight; each carries batch_size questions.
 traces_in_flight: 4
 guidebook: ThinkARM/guidebook/sentence_guide.md  # Same guidebook as the LLM.
-criteria: src/labeling/prompts/basal.md  # Per-sentence question ({index}) and label criteria.
+criteria: src/labeling/prompts/basal.md  # Question quoting each sentence ({sentence}) and label names.

@@ -35,14 +35,13 @@ def envelope(answers):
     }
 
 
+def quoted(question):
+    return question['instructions'].rsplit('Sentence: ', 1)[1]
+
+
 def by_position(body):
-    """Answer each question with the label at its sentence's batch position in LABELS."""
-    return envelope(
-        {
-            name: answer(m.LABELS[int(q['instructions'].split('[', 1)[1].split(']')[0]) - 1])
-            for name, q in body['questions'].items()
-        }
-    )
+    """Answer each question `sK` with the K-th label in LABELS."""
+    return envelope({name: answer(m.LABELS[int(name[1:]) - 1]) for name in body['questions']})
 
 
 def same_label(choice):
@@ -95,15 +94,16 @@ def test_request_shape(server):
     assert 'What is 2+2?' in state
     context, batch = state.split('[Input]\nThe following')
     assert 'First.\nSecond.' in context
-    assert '[1] Third.' in batch and 'Third.' not in context
-    assert '\n[Format]\n' not in state
+    assert '\nThird.\n' in batch and 'Third.' not in context
+    assert '[1]' not in state and 'Format' not in state and 'Overall Response' not in state
+    assert '\nFirst.\nSecond.\n[End of the Input]' in server.bodies[0]['state']
     questions = server.bodies[1]['questions']
     assert list(questions) == ['s1']
     assert questions['s1']['type'] == 'choice'
-    assert list(questions['s1']['criteria']) == m.LABELS
-    assert 'sentence [1]' in questions['s1']['instructions']
-    assert list(server.bodies[0]['questions']) == ['s1', 's2']
-    assert 'sentence [2]' in server.bodies[0]['questions']['s2']['instructions']
+    assert questions['s1']['criteria'] == m.LABELS
+    assert quoted(questions['s1']) == 'Third.'
+    first = server.bodies[0]['questions']
+    assert [quoted(first[name]) for name in ['s1', 's2']] == ['First.', 'Second.']
 
 
 def test_answers_map_to_sentences_in_order(server):
@@ -164,7 +164,7 @@ def test_output_order_when_requests_finish_out_of_order(server, monkeypatch):
     finished = []
 
     async def post(self, url, json):
-        index = int(json['state'].rsplit('] Sentence ', 1)[1].split('.')[0])
+        index = int(quoted(json['questions']['s1']).split()[1].rstrip('.'))
         await asyncio.sleep(0.01 * (len(labels) - index))
         finished.append(index)
         reply = envelope({'s1': answer(labels[index])})
@@ -178,18 +178,16 @@ def test_output_order_when_requests_finish_out_of_order(server, monkeypatch):
 
 def test_criteria_file_must_describe_all_labels(tmp_path):
     prompt = tmp_path / 'basal.md'
-    prompt.write_text(
-        'Which category is sentence [{index}]?\n\nRead: restates.\nAnalyze: infers.\n'
-    )
+    prompt.write_text('Which category?\nSentence: {sentence}\n\nRead\nAnalyze\n')
     with pytest.raises(ValueError, match='labels'):
         m.BasalLabeler({'criteria': str(prompt)})
 
 
-def test_criteria_question_must_contain_index(tmp_path):
+def test_criteria_question_must_contain_sentence(tmp_path):
     prompt = tmp_path / 'basal.md'
-    lines = '\n'.join(f'{label}: x.' for label in m.LABELS)
+    lines = '\n'.join(m.LABELS)
     prompt.write_text(f'Which category?\n\n{lines}\n')
-    with pytest.raises(ValueError, match='index'):
+    with pytest.raises(ValueError, match='sentence'):
         m.BasalLabeler({'criteria': str(prompt)})
 
 

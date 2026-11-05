@@ -36,7 +36,19 @@ def render_sentences(sentences: list[str]) -> str:
     return '\n'.join(f'[{i}] {text}' for i, text in enumerate(sentences, 1))
 
 
-def build_prompt(problem, context, batch_sentences, *, guidebook=None, template='batch.md'):
+def fill_template(name, values):
+    template = PROMPTS.joinpath(name).read_text(encoding='utf-8')
+    # A single substitution pass keeps tokens inside inserted text literal.
+    return PLACEHOLDER_PATTERN.sub(lambda match: values[match[1]], template)
+
+
+def context_text(context):
+    if context:
+        return f'The previous sentences are:\n\n {context}'
+    return 'There is no previous sentences.'
+
+
+def build_prompt(problem, context, batch_sentences, *, guidebook=None):
     """Fill the prompt templates for one batch of sentences.
 
     `context` is the text of all sentences preceding the batch.
@@ -46,19 +58,12 @@ def build_prompt(problem, context, batch_sentences, *, guidebook=None, template=
     values = dict(
         guidebook=guidebook,
         problem=problem,
-        context=(
-            f'The previous sentences are:\n\n {context}'
-            if context
-            else 'There is no previous sentences.'
-        ),
+        context=context_text(context),
         sentences=render_sentences(batch_sentences),
         n=str(len(batch_sentences)),
     )
-    template = PROMPTS.joinpath(template).read_text(encoding='utf-8')
-    # A single substitution pass keeps tokens inside inserted text literal.
-    batch = PLACEHOLDER_PATTERN.sub(lambda match: values[match[1]], template)
     instructions = PROMPTS.joinpath('instructions.md').read_text(encoding='utf-8')
-    return instructions.strip() + '\n\n' + batch
+    return instructions.strip() + '\n\n' + fill_template('batch.md', values)
 
 
 def backoff(attempt):
@@ -195,14 +200,25 @@ class OpenAICompatLabeler:
 
 
 def load_basal_question(path):
-    """Read the instructions (first paragraph, with `{index}`) and `Label: description` lines."""
+    """Read the question (first paragraph, with `{sentence}`) and one label name per line."""
     instructions, _, rest = Path(path).read_text(encoding='utf-8').strip().partition('\n\n')
-    criteria = dict(line.split(': ', 1) for line in rest.splitlines() if line.strip())
-    if list(criteria) != LABELS:
+    criteria = [line.strip() for line in rest.splitlines() if line.strip()]
+    if criteria != LABELS:
         raise ValueError(f'{path} must describe exactly these labels in order: {LABELS}')
-    if '{index}' not in instructions:
-        raise ValueError(f'{path}: the question must contain {{index}}')
+    if '{sentence}' not in instructions:
+        raise ValueError(f'{path}: the question must contain {{sentence}}')
     return {'type': 'choice', 'instructions': instructions, 'criteria': criteria}
+
+
+def build_basal_state(problem, context, sentences, guidebook):
+    """The LLM prompt's content with the batch's sentences unnumbered and no output format."""
+    values = dict(
+        guidebook=guidebook,
+        problem=problem,
+        context=context_text(context),
+        sentences='\n'.join(sentences),
+    )
+    return fill_template('basal_state.md', values)
 
 
 def parse_basal_answer(data, name):
@@ -219,8 +235,9 @@ def parse_basal_answer(data, name):
 class BasalLabeler:
     """Labels sentences with /v1/systemone choice questions to a basal-serve server.
 
-    One request per batch of `batch_size` sentences: its state is the LLM prompt (instructions,
-    guidebook, problem, previous context, numbered batch) and it asks one question per sentence.
+    One request per batch of `batch_size` sentences: its state is the LLM prompt's content
+    (instructions, guidebook, problem, previous context, the batch's sentences unnumbered), and it
+    asks one question per sentence, quoting that sentence.
     """
 
     def __init__(self, config):
@@ -248,13 +265,11 @@ class BasalLabeler:
                 await sleep(backoff(attempt))
 
     async def _batch(self, problem, context, sentences):
-        state = build_prompt(
-            problem, context, sentences, guidebook=self.guidebook, template='basal_state.md'
-        )
+        state = build_basal_state(problem, context, sentences, self.guidebook)
+        question = self.question['instructions']
         questions = {
-            f's{i}': self.question
-            | {'instructions': self.question['instructions'].replace('{index}', str(i))}
-            for i in range(1, len(sentences) + 1)
+            f's{i}': self.question | {'instructions': question.replace('{sentence}', sentence)}
+            for i, sentence in enumerate(sentences, 1)
         }
         data = await self._post({'state': state, 'questions': questions})
         return [parse_basal_answer(data, name) for name in questions]
