@@ -14,7 +14,7 @@ Already cloned without ThinkARM? Run `git submodule update --init --recursive`.
 
 ## Evaluate a model
 
-Run commands from the repository root. `configs/label.yaml` already points to the
+Run commands from the repository root. `configs/llm.yaml` already points to the
 evaluation data below; use it directly.
 
 1. Set your API key in your shell or `.env`. To create a credentials file:
@@ -26,7 +26,7 @@ evaluation data below; use it directly.
    Fill in `OPENAI_API_KEY` or `LABELER_API_KEY` (which takes precedence).
    Existing shell values override `.env`; credentials files are gitignored.
 
-2. Edit `model` and `base_url` in `configs/label.yaml`. Use your server's model
+2. Edit `model` and `base_url` in `configs/llm.yaml`. Use your server's model
    name and API root, such as `http://localhost:4000/v1`. For OpenAI, use
    `https://api.openai.com/v1` and set `chat_template_kwargs: null`.
 
@@ -46,7 +46,7 @@ evaluation data below; use it directly.
 4. Label and evaluate:
 
    ```bash
-   uv run python -m labeling label configs/label.yaml --run thinkarm-1
+   uv run python -m labeling label configs/llm.yaml --run thinkarm-1
    uv run python -m labeling evaluate --labels runs/thinkarm-1/labels.jsonl --human data/thinkarm/human.jsonl
    ```
 
@@ -84,11 +84,11 @@ uv run python scripts/convert_thinkarm.py deepseekR1 --out data/thinkarm-all
 uv run python scripts/convert_thinkarm.py deepseekR1 --limit 20 --out data/thinkarm-20
 ```
 
-Set `input` in `configs/label.yaml` to the exported `traces.jsonl`, then use a new
+Set `input` in `configs/llm.yaml` to the exported `traces.jsonl`, then use a new
 run name:
 
 ```bash
-uv run python -m labeling label configs/label.yaml --run thinkarm-20
+uv run python -m labeling label configs/llm.yaml --run thinkarm-20
 ```
 
 Both modes also write available matching annotations to `human.jsonl`; evaluation
@@ -120,12 +120,14 @@ uv run python -m labeling label configs/basal.yaml --run basal-1
 uv run python -m labeling evaluate --labels runs/basal-1/labels.jsonl --human data/thinkarm/human.jsonl
 ```
 
-`configs/basal.yaml` sets the server address (`base_url`), `concurrency` and the prompt file
-(`guidebook`, the question and one-line label descriptions). Each sentence is one request that
-sees the problem and all earlier sentences; `labels.jsonl` stores every label's probability in
-`probs`. The model's context is 32k tokens; for longer states the server drops the middle of the
-state by default. The run prints the labeling time per trace and per sentence for comparison with
-an LLM run on the same traces.
+basal gets the same input as the LLM labeler. Each request covers a batch of `batch_size`
+sentences: its state is the LLM prompt (instructions, the full `guidebook`, the problem, all
+earlier sentences and the numbered batch, without the output-format section), and it asks one
+question per sentence (`criteria`, `src/labeling/prompts/basal.md`). The server reads the shared
+state once per request. `configs/basal.yaml` also sets the server address (`base_url`) and
+`concurrency`; `labels.jsonl` stores every label's probability in `probs`. The model's context is
+32k tokens; the longest state for the ThinkARM traces is about 15k tokens. The run prints the
+labeling time per trace and per sentence for comparison with an LLM run on the same traces.
 
 ## Development
 

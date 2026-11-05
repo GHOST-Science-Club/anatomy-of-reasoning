@@ -1,4 +1,4 @@
-The state is a math problem and a model's reasoning about it, split into sentences. Which reasoning episode (Schoenfeld's framework) does the target sentence, marked TARGET SENTENCE, belong to? Judge the target sentence alone, using the earlier sentences only as context.
+Which category does sentence [{index}] in the [Input] - [End of the Input] section belong to? Refer to the guidebook to make the decision.
 
 Read: restates or quotes the problem's given information, conditions or goal, without any analysis.
 Analyze: recalls theory, introduces symbols or makes certain logical inferences about the problem or results, without concrete calculation.

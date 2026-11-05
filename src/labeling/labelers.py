@@ -36,7 +36,7 @@ def render_sentences(sentences: list[str]) -> str:
     return '\n'.join(f'[{i}] {text}' for i, text in enumerate(sentences, 1))
 
 
-def build_prompt(problem, context, batch_sentences, *, guidebook=None):
+def build_prompt(problem, context, batch_sentences, *, guidebook=None, template='batch.md'):
     """Fill the prompt templates for one batch of sentences.
 
     `context` is the text of all sentences preceding the batch.
@@ -54,7 +54,7 @@ def build_prompt(problem, context, batch_sentences, *, guidebook=None):
         sentences=render_sentences(batch_sentences),
         n=str(len(batch_sentences)),
     )
-    template = PROMPTS.joinpath('batch.md').read_text(encoding='utf-8')
+    template = PROMPTS.joinpath(template).read_text(encoding='utf-8')
     # A single substitution pass keeps tokens inside inserted text literal.
     batch = PLACEHOLDER_PATTERN.sub(lambda match: values[match[1]], template)
     instructions = PROMPTS.joinpath('instructions.md').read_text(encoding='utf-8')
@@ -194,27 +194,21 @@ class OpenAICompatLabeler:
         return [prediction for batch in batches for prediction in batch]
 
 
-BASAL_TARGET = '\n\nTARGET SENTENCE:\n'
-
-
 def load_basal_question(path):
-    """Read the instructions (first paragraph) and `Label: description` criteria lines."""
+    """Read the instructions (first paragraph, with `{index}`) and `Label: description` lines."""
     instructions, _, rest = Path(path).read_text(encoding='utf-8').strip().partition('\n\n')
     criteria = dict(line.split(': ', 1) for line in rest.splitlines() if line.strip())
     if list(criteria) != LABELS:
         raise ValueError(f'{path} must describe exactly these labels in order: {LABELS}')
+    if '{index}' not in instructions:
+        raise ValueError(f'{path}: the question must contain {{index}}')
     return {'type': 'choice', 'instructions': instructions, 'criteria': criteria}
 
 
-def build_basal_state(problem, earlier, target):
-    context = '\n'.join(earlier) if earlier else '(none)'
-    return f'PROBLEM:\n{problem}\n\nEARLIER SENTENCES:\n{context}{BASAL_TARGET}{target}'
-
-
-def parse_basal_answer(data):
-    """Turn a /v1/systemone response into a Prediction; raise ValueError on an invalid choice."""
+def parse_basal_answer(data, name):
+    """One answer of a /v1/systemone response as a Prediction; ValueError if invalid."""
     try:
-        answer = data['answers']['label']
+        answer = data['answers'][name]
         if answer['choice'] not in LABELS:
             raise ValueError(f'unknown choice {answer["choice"]!r}')
         return Prediction(answer['choice'], None, dict(answer['probabilities']))
@@ -223,45 +217,68 @@ def parse_basal_answer(data):
 
 
 class BasalLabeler:
-    """Labels each sentence with one /v1/systemone choice request to a basal-serve server."""
+    """Labels sentences with /v1/systemone choice questions to a basal-serve server.
+
+    One request per batch of `batch_size` sentences: its state is the LLM prompt (instructions,
+    guidebook, problem, previous context, numbered batch) and it asks one question per sentence.
+    """
 
     def __init__(self, config):
-        self.question = load_basal_question(config.get('guidebook', PROMPTS / 'basal.md'))
+        self.question = load_basal_question(config.get('criteria', PROMPTS / 'basal.md'))
+        self.guidebook = Path(config.get('guidebook', DEFAULT_GUIDEBOOK)).read_text(
+            encoding='utf-8'
+        )
+        self.batch_size = config.get('batch_size', 20)
         self.url = config.get('base_url', 'http://localhost:8000').rstrip('/') + '/v1/systemone'
-        self.semaphore = asyncio.Semaphore(config.get('concurrency', 16))
+        self.semaphore = asyncio.Semaphore(config.get('concurrency', 8))
         self.client = AsyncClient(timeout=300)
 
-    async def _sentence(self, problem, earlier, target):
-        body = {
-            'state': build_basal_state(problem, earlier, target),
-            'questions': {'label': self.question},
-        }
+    async def _post(self, body):
         for attempt in range(MAX_ATTEMPTS):
             try:
                 async with self.semaphore:
                     response = await self.client.post(self.url, json=body)
                 response.raise_for_status()
-                break
+                return response.json()
             except (HTTPStatusError, TransportError) as exc:
                 status = getattr(getattr(exc, 'response', None), 'status_code', None)
                 retryable = status is None or status == 429 or status >= 500
                 if not retryable or attempt == MAX_ATTEMPTS - 1:
                     raise
                 await sleep(backoff(attempt))
-        return parse_basal_answer(response.json())
+
+    async def _batch(self, problem, context, sentences):
+        state = build_prompt(
+            problem, context, sentences, guidebook=self.guidebook, template='basal_state.md'
+        )
+        questions = {
+            f's{i}': self.question
+            | {'instructions': self.question['instructions'].replace('{index}', str(i))}
+            for i in range(1, len(sentences) + 1)
+        }
+        data = await self._post({'state': state, 'questions': questions})
+        return [parse_basal_answer(data, name) for name in questions]
 
     async def label(self, problem: str, sentences: list[str]) -> list[Prediction]:
+        """Label all sentences; each batch sees every earlier sentence as context."""
         tasks = [
-            asyncio.create_task(self._sentence(problem, sentences[:i], sentence))
-            for i, sentence in enumerate(sentences)
+            asyncio.create_task(
+                self._batch(
+                    problem,
+                    '\n'.join(sentences[:start]),
+                    sentences[start : start + self.batch_size],
+                )
+            )
+            for start in range(0, len(sentences), self.batch_size)
         ]
         try:
-            return list(await asyncio.gather(*tasks))
+            batches = await asyncio.gather(*tasks)
         except BaseException:
             for task in tasks:
                 task.cancel()
             await asyncio.gather(*tasks, return_exceptions=True)
             raise
+        return [prediction for batch in batches for prediction in batch]
 
 
 REGISTRY: dict[str, Callable[[dict], Labeler]] = {

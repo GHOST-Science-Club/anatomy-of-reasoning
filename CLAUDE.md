@@ -17,7 +17,7 @@ uv run pytest                              # offline; no API calls
 uv run pytest tests/test_run.py::test_name # single test
 uv run ruff check . && uv run ruff format .
 uv run python scripts/convert_thinkarm.py deepseekR1 --human-only --out data/thinkarm
-uv run python -m labeling label configs/label.yaml --run <name>
+uv run python -m labeling label configs/llm.yaml --run <name>
 uv run python -m labeling evaluate --labels runs/<name>/labels.jsonl --human data/thinkarm/human.jsonl
 ```
 

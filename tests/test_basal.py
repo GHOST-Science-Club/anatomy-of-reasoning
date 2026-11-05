@@ -1,5 +1,6 @@
 import asyncio
 import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import httpx
@@ -8,23 +9,25 @@ import pytest
 from labeling import labelers as m
 
 
-def envelope(choice, probs=None):
-    """Copy of a real basal-serve /v1/systemone response (basal 2.5.3, basal-2.0-4.5B)."""
+def answer(choice, probs=None):
     probs = probs or {label: (0.93 if label == choice else 0.01) for label in m.LABELS}
     return {
+        'type': 'choice',
+        'choice': choice,
+        'probabilities': probs,
+        'confidence': max(probs.values()),
+    }
+
+
+def envelope(answers):
+    """Copy of a real basal-serve /v1/systemone response (basal 2.5.3, basal-2.0-4.5B)."""
+    return {
         'model': 'basal-2.0-4.5B',
-        'answers': {
-            'label': {
-                'type': 'choice',
-                'choice': choice,
-                'probabilities': probs,
-                'confidence': max(probs.values()),
-            }
-        },
+        'answers': answers,
         'usage': {
             'input_tokens': 127,
             'output_tokens': 0,
-            'questions': 1,
+            'questions': len(answers),
             'branches': 1,
             'latency_ms': 33.22,
             'longest_prompt_tokens': 127,
@@ -32,11 +35,25 @@ def envelope(choice, probs=None):
     }
 
 
+def by_position(body):
+    """Answer each question with the label at its sentence's batch position in LABELS."""
+    return envelope(
+        {
+            name: answer(m.LABELS[int(q['instructions'].split('[', 1)[1].split(']')[0]) - 1])
+            for name, q in body['questions'].items()
+        }
+    )
+
+
+def same_label(choice):
+    return lambda body: envelope({name: answer(choice) for name in body['questions']})
+
+
 @pytest.fixture
 def server(monkeypatch):
     """Fake basal-serve behind a real httpx client; `handler` maps a request body to a response."""
     bodies, sleeps = [], []
-    state = SimpleNamespace(bodies=bodies, sleeps=sleeps, handler=lambda body: envelope('Plan'))
+    state = SimpleNamespace(bodies=bodies, sleeps=sleeps, handler=by_position)
 
     def transport(request):
         body = json.loads(request.content)
@@ -61,8 +78,8 @@ def server(monkeypatch):
     return state
 
 
-def label(sentences, config=None):
-    labeler = m.REGISTRY['basal']({'model': 'basal', **(config or {})})
+def label(sentences, batch_size=2):
+    labeler = m.REGISTRY['basal']({'model': 'basal', 'batch_size': batch_size})
     return asyncio.run(labeler.label('What is 2+2?', sentences))
 
 
@@ -72,40 +89,47 @@ def test_registered():
 
 def test_request_shape(server):
     label(['First.', 'Second.', 'Third.'])
-    body = server.bodies[2]
-    assert set(body['questions']) == {'label'}
-    question = body['questions']['label']
-    assert question['type'] == 'choice'
-    assert list(question['criteria']) == m.LABELS
-    assert all(question['criteria'].values())
-    assert question['instructions']
-    state = body['state']
+    assert len(server.bodies) == 2
+    state = server.bodies[1]['state']
+    assert Path(m.DEFAULT_GUIDEBOOK).read_text(encoding='utf-8') in state
     assert 'What is 2+2?' in state
-    context, target = state.split(m.BASAL_TARGET)
+    context, batch = state.split('[Input]\nThe following')
     assert 'First.\nSecond.' in context
-    assert 'Third.' in target and 'Third.' not in context
-    first = server.bodies[0]['state']
-    assert 'First.' in first.split(m.BASAL_TARGET)[1]
+    assert '[1] Third.' in batch and 'Third.' not in context
+    assert '\n[Format]\n' not in state
+    questions = server.bodies[1]['questions']
+    assert list(questions) == ['s1']
+    assert questions['s1']['type'] == 'choice'
+    assert list(questions['s1']['criteria']) == m.LABELS
+    assert 'sentence [1]' in questions['s1']['instructions']
+    assert list(server.bodies[0]['questions']) == ['s1', 's2']
+    assert 'sentence [2]' in server.bodies[0]['questions']['s2']['instructions']
+
+
+def test_answers_map_to_sentences_in_order(server):
+    predictions = label(['a', 'b', 'c', 'd', 'e'], batch_size=3)
+    assert [p.label for p in predictions] == ['Read', 'Analyze', 'Plan', 'Read', 'Analyze']
+    assert all(p.probs and p.reason is None for p in predictions)
 
 
 def test_valid_response_becomes_prediction(server):
     probs = dict.fromkeys(m.LABELS, 0.0) | {'Verify': 0.7, 'Answer': 0.3}
-    server.handler = lambda body: envelope('Verify', probs)
+    server.handler = lambda body: envelope({'s1': answer('Verify', probs)})
     assert label(['The answer is 4, check.']) == [m.Prediction('Verify', None, probs)]
 
 
 @pytest.mark.parametrize(
     'reply',
     [
-        envelope('Summarize'),
-        {'model': 'basal-2.0-4.5B', 'answers': {}, 'usage': {}},
+        envelope({'s1': answer('Summarize'), 's2': answer('Read')}),
+        envelope({'s1': answer('Read')}),
         {'error': 'oops'},
     ],
 )
 def test_unknown_or_missing_choice_raises(server, reply):
     server.handler = lambda body: reply
     with pytest.raises(ValueError):
-        label(['Sentence.'])
+        label(['a', 'b'])
 
 
 @pytest.mark.parametrize('failure', ['503', 'connect'])
@@ -118,7 +142,7 @@ def test_transient_error_retried_then_succeeds(server, failure):
             if failure == 'connect':
                 raise httpx.ConnectError('refused')
             return httpx.Response(503, json={'error': 'out of memory'})
-        return envelope('Monitor')
+        return same_label('Monitor')(body)
 
     server.handler = handler
     assert [p.label for p in label(['Wait.'])] == ['Monitor']
@@ -140,22 +164,33 @@ def test_output_order_when_requests_finish_out_of_order(server, monkeypatch):
     finished = []
 
     async def post(self, url, json):
-        index = int(json['state'].rsplit('Sentence ', 1)[1].rstrip('.'))
+        index = int(json['state'].rsplit('] Sentence ', 1)[1].split('.')[0])
         await asyncio.sleep(0.01 * (len(labels) - index))
         finished.append(index)
-        return httpx.Response(200, json=envelope(labels[index]), request=httpx.Request('POST', url))
+        reply = envelope({'s1': answer(labels[index])})
+        return httpx.Response(200, json=reply, request=httpx.Request('POST', url))
 
     monkeypatch.setattr(httpx.AsyncClient, 'post', post)
-    predictions = label([f'Sentence {i}.' for i in range(len(labels))])
+    predictions = label([f'Sentence {i}.' for i in range(len(labels))], batch_size=1)
     assert finished == [3, 2, 1, 0]
     assert [p.label for p in predictions] == labels
 
 
-def test_prompt_file_must_describe_all_labels(tmp_path):
+def test_criteria_file_must_describe_all_labels(tmp_path):
     prompt = tmp_path / 'basal.md'
-    prompt.write_text('Which category?\n\nRead: restates.\nAnalyze: infers.\n')
+    prompt.write_text(
+        'Which category is sentence [{index}]?\n\nRead: restates.\nAnalyze: infers.\n'
+    )
     with pytest.raises(ValueError, match='labels'):
-        m.BasalLabeler({'guidebook': str(prompt)})
+        m.BasalLabeler({'criteria': str(prompt)})
+
+
+def test_criteria_question_must_contain_index(tmp_path):
+    prompt = tmp_path / 'basal.md'
+    lines = '\n'.join(f'{label}: x.' for label in m.LABELS)
+    prompt.write_text(f'Which category?\n\n{lines}\n')
+    with pytest.raises(ValueError, match='index'):
+        m.BasalLabeler({'criteria': str(prompt)})
 
 
 def test_failure_cancels_other_requests(server, monkeypatch):
@@ -163,14 +198,14 @@ def test_failure_cancels_other_requests(server, monkeypatch):
 
     async def post(self, url, json):
         request = httpx.Request('POST', url)
-        if json['state'].endswith('Bad.'):
+        if 'Bad.' in json['state'].split('[Input]\nThe following')[1]:
             return httpx.Response(400, request=request)
         await asyncio.sleep(0.2)
         completed.append(json['state'])
-        return httpx.Response(200, json=envelope('Read'), request=request)
+        return httpx.Response(200, json=envelope({'s1': answer('Read')}), request=request)
 
     async def run():
-        labeler = m.BasalLabeler({'model': 'basal'})
+        labeler = m.BasalLabeler({'model': 'basal', 'batch_size': 1})
         with pytest.raises(httpx.HTTPStatusError):
             await labeler.label('P', ['Slow.', 'Bad.', 'Slow too.'])
         await asyncio.sleep(0.3)
